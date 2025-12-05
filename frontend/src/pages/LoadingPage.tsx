@@ -7,6 +7,7 @@ type StatusResponse = {
   status: string;
   total_frames: number;
   processed_frames: number;
+  message?: string;
 };
 
 function LoadingPage() {
@@ -14,6 +15,7 @@ function LoadingPage() {
   const { sessionId } = useParams();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string>("");
+  const [isError, setIsError] = useState<boolean>(false);
 
   const progress = useMemo(() => {
     if (!status || status.total_frames === 0) return 0;
@@ -34,9 +36,14 @@ function LoadingPage() {
           clearInterval(timer);
           navigate(`/label/${sessionId}`, { replace: true });
         }
+        if (data.status === "error") {
+          clearInterval(timer);
+          setIsError(true);
+        }
       } catch (e) {
         console.error(e);
         setError("获取进度失败");
+        setIsError(true);
       }
     }, 1200);
 
@@ -81,10 +88,40 @@ function LoadingPage() {
           </div>
 
           <div className="status">
+            {status?.status === "queued" && "等待抽帧资源..."}
             {status?.status === "processing" && "抽帧处理中..."}
             {status?.status === "done" && "完成，正在跳转..."}
+            {status?.status === "error" && `抽帧失败：${status?.message || ""}`}
             {!status && "请求进度中..."}
             {error && ` | ${error}`}
+          </div>
+
+          <div className="button-row" style={{ justifyContent: "flex-end" }}>
+            <button className="soft-button" type="button" onClick={() => navigate("/upload")}>
+              返回上传
+            </button>
+            {sessionId && (
+              <button
+                className="soft-button ghost"
+                type="button"
+                onClick={async () => {
+                  try {
+                    await apiClient.delete(`/api/videos/${sessionId}`);
+                    navigate("/upload", { replace: true });
+                  } catch (e) {
+                    console.error(e);
+                    setError("清理失败");
+                  }
+                }}
+              >
+                清理并返回
+              </button>
+            )}
+            {isError && (
+              <button className="soft-button primary" type="button" onClick={() => window.location.reload()}>
+                重试
+              </button>
+            )}
           </div>
         </div>
       </div>

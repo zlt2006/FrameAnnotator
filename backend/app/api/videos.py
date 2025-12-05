@@ -41,3 +41,9 @@ def fetch_frame(session_id: str, frame_name: str):
     if not frame_path.exists():
         raise HTTPException(status_code=404, detail="Frame not found")
     return FileResponse(frame_path, media_type="image/jpeg")
+
+
+@router.delete("/{session_id}")
+def cleanup(session_id: str):
+    video_service.cleanup_session(session_id=session_id)
+    return {"success": True}

@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Dict, List, Union
 
 import cv2
@@ -6,8 +7,11 @@ from fastapi import HTTPException, UploadFile
 
 from app.core import config, utils
 
-MAX_FILE_SIZE = 512 * 1024 * 1024  # 512 MB
+MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
 ALLOWED_CONTENT_TYPES = {"video/mp4", "application/octet-stream"}
+MAX_CONCURRENT_EXTRACTIONS = 2
+
+_extract_semaphore = BoundedSemaphore(MAX_CONCURRENT_EXTRACTIONS)
 
 
 def ensure_session_dirs(session_id: str) -> None:
@@ -20,22 +24,30 @@ def _status_path(session_id: str) -> Path:
     return config.FRAMES_DIR / session_id / "status.json"
 
 
-def _write_status(session_id: str, status: str, total_frames: int = 0, processed_frames: int = 0) -> None:
+def _write_status(
+    session_id: str,
+    status: str,
+    total_frames: int = 0,
+    processed_frames: int = 0,
+    message: str = "",
+) -> None:
     payload = {
         "status": status,
         "total_frames": total_frames,
         "processed_frames": processed_frames,
+        "message": message,
     }
     utils.write_json(_status_path(session_id), payload)
 
 
 def _read_status(session_id: str) -> Dict[str, Union[int, str]]:
-    fallback = {"status": "pending", "processed_frames": 0, "total_frames": 0}
+    fallback = {"status": "pending", "processed_frames": 0, "total_frames": 0, "message": ""}
     data = utils.read_json(_status_path(session_id)) or {}
     return {
         "status": data.get("status", fallback["status"]),
         "processed_frames": data.get("processed_frames", fallback["processed_frames"]),
         "total_frames": data.get("total_frames", fallback["total_frames"]),
+        "message": data.get("message", fallback["message"]),
     }
 
 
@@ -67,7 +79,7 @@ async def store_video(file: UploadFile, session_id: str) -> Path:
                     break
                 size += len(chunk)
                 if size > MAX_FILE_SIZE:
-                    raise HTTPException(status_code=413, detail="文件过大，超过 512MB 限制")
+                    raise HTTPException(status_code=413, detail="文件过大，超过 2GB 限制")
                 buffer.write(chunk)
     except HTTPException:
         destination.unlink(missing_ok=True)
@@ -104,7 +116,13 @@ def extract_frames(session_id: str, fps: int) -> List[str]:
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 0
     frame_interval = max(1, int(round(video_fps / fps))) if video_fps > 0 else 1
 
-    _write_status(session_id, status="processing", total_frames=total_frames, processed_frames=0)
+    # 控制并发：如超出上限，则标记排队并等待
+    acquired = _extract_semaphore.acquire(blocking=False)
+    if not acquired:
+        _write_status(session_id, status="queued", total_frames=total_frames, processed_frames=0, message="等待抽帧资源")
+        _extract_semaphore.acquire()
+
+    _write_status(session_id, status="processing", total_frames=total_frames, processed_frames=0, message="")
 
     saved_files: List[str] = []
     frame_idx = 0
@@ -126,12 +144,22 @@ def extract_frames(session_id: str, fps: int) -> List[str]:
             frame_idx += 1
             processed = frame_idx
 
-            # 避免频繁写文件，仅在每 50 帧或结束时更新进度
-            if processed % 50 == 0:
+            # 避免频繁写文件，仅在每 30 帧或结束时更新进度
+            if processed % 30 == 0:
                 _write_status(session_id, status="processing", total_frames=total_frames, processed_frames=processed)
 
+    except Exception as exc:  # noqa: BLE001
+        _write_status(
+            session_id,
+            status="error",
+            total_frames=total_frames,
+            processed_frames=processed,
+            message=str(exc),
+        )
+        raise
     finally:
         cap.release()
+        _extract_semaphore.release()
 
     _write_status(session_id, status="done", total_frames=total_frames, processed_frames=processed)
     return saved_files
@@ -150,3 +178,24 @@ def list_frames(session_id: str) -> List[str]:
 
 def get_frame_path(session_id: str, frame_name: str) -> Path:
     return config.FRAMES_DIR / session_id / frame_name
+
+
+def cleanup_session(session_id: str) -> None:
+    """Remove all artifacts of a session."""
+    for path in [
+        config.VIDEOS_DIR / session_id,
+        config.FRAMES_DIR / session_id,
+        config.CROPS_DIR / session_id,
+    ]:
+        if path.exists():
+            for item in path.glob("**/*"):
+                if item.is_file():
+                    item.unlink(missing_ok=True)
+            # remove empty dirs from bottom up
+            for dirpath in sorted([p for p in path.glob("**/*") if p.is_dir()], reverse=True):
+                dirpath.rmdir()
+            path.rmdir()
+    labels_file = config.LABELS_DIR / f"{session_id}.json"
+    export_file = config.LABELS_DIR / f"{session_id}{config.EXPORT_SUFFIX}"
+    labels_file.unlink(missing_ok=True)
+    export_file.unlink(missing_ok=True)
