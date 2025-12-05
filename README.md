@@ -9,14 +9,28 @@
 - Python 3.9+，Node.js 18+（包含 npm）
 
 ### 安装依赖
+
+**macOS（bash/zsh）**
 - 后端：`cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 - 前端：`cd frontend && npm install`
 
+**Windows（PowerShell）**
+- 后端：`cd backend; python -m venv .venv; .\\.venv\\Scripts\\Activate.ps1; pip install -r requirements.txt`
+- 前端：`cd frontend; npm install`
+
 ### 启动服务（两个终端）
+
+**macOS（bash/zsh）**
 - 后端（默认 http://localhost:8000）：  
   `cd backend && source .venv/bin/activate && python3 -m uvicorn app.main:app --reload --app-dir .`
 - 前端（默认 http://localhost:5173）：  
   `cd frontend && npm run dev`
+
+**Windows（PowerShell）**
+- 后端（默认 http://localhost:8000）：  
+  `cd backend; .\\.venv\\Scripts\\Activate.ps1; python -m uvicorn app.main:app --reload --app-dir .`
+- 前端（默认 http://localhost:5173）：  
+  `cd frontend; npm run dev`
 
 ### 网页操作流程
 1. 打开前端地址 `/upload`：选择 mp4、输入 FPS，点击“开始抽帧”。
