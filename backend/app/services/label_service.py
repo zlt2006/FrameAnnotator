@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import zipfile
+import shutil
 
 import cv2
 from fastapi import HTTPException
@@ -145,3 +146,24 @@ def export_dataset(session_id: str) -> Optional[Path]:
                     archive.write(crop_path, arcname=crop_name)
         archive.writestr("labels.txt", "\n".join(label_lines))
     return export_path
+
+
+def reset_labels(session_id: str) -> bool:
+    data = load_labels(session_id)
+    if data is None:
+        return False
+
+    frames = data.get("frames", [])
+    for frame in frames:
+        frame["labeled"] = False
+        frame.pop("label", None)
+        frame.pop("crop_name", None)
+        frame.pop("bbox", None)
+
+    # remove existing crops and export artifacts
+    shutil.rmtree(config.CROPS_DIR / session_id, ignore_errors=True)
+    export_path = get_export_path(session_id)
+    export_path.unlink(missing_ok=True)
+
+    utils.write_json(labels_path(session_id), data)
+    return True

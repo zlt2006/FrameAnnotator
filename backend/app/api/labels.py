@@ -57,3 +57,11 @@ def download_export(session_id: str):
     if export_path is None or not export_path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     return FileResponse(export_path, media_type="application/zip")
+
+
+@router.post("/labels/{session_id}/reset")
+def reset_labels(session_id: str):
+    ok = label_service.reset_labels(session_id=session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"success": True}

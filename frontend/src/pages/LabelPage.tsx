@@ -334,10 +334,31 @@ function LabelPage() {
            >
              {filterUnlabeled ? "显示全部" : "只看未标注"}
            </button>
-           <button 
+          <button 
              type="button" 
              style={styles.button}
-             onClick={() => fetchData()}
+             onClick={async () => {
+               if (!sessionId) return;
+               try {
+                 await apiClient.post(`/api/labels/${sessionId}/reset`);
+                 const { frames: refreshedFrames, meta } = await fetchData();
+                 setCurrentIndex(0);
+                 setSelectedLabel(null);
+                 setBbox(null);
+                 setPreviewUrl(null);
+                 setStatus("标注已清空，重新开始");
+                 // refresh visible frames for unlabeled filter
+                 if (filterUnlabeled) {
+                   const nextVisible = refreshedFrames.filter((name) => !meta[name]?.labeled);
+                   if (nextVisible.length === 0) {
+                     setCurrentIndex(0);
+                   }
+                 }
+               } catch (error) {
+                 console.error(error);
+                 setStatus("清空标注失败");
+               }
+             }}
            >
              刷新
            </button>
