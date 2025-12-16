@@ -11,6 +11,7 @@ LABELS_DIR = DATA_DIR / "labels"
 FRAME_PREFIX = "frame_"
 CROP_PREFIX = "head_"
 EXPORT_SUFFIX = "_export.zip"
+DET_EXPORT_SUFFIX = "_det_export.zip"
 DEFAULT_FRAME_SIZE: Tuple[int, int] = (640, 360)
 DEFAULT_CROP_SIZE: Tuple[int, int] = (128, 128)
 

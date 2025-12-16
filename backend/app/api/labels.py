@@ -22,6 +22,19 @@ class LabelRequest(BaseModel):
     label: int
 
 
+class Detection(BaseModel):
+    x: float
+    y: float
+    box_size: float
+    image_width: float
+    image_height: float
+
+
+class DetectionRequest(BaseModel):
+    detections: list[Detection]
+    saved: Optional[bool] = False
+
+
 @router.post("/labels/{session_id}/frame/{frame_name}")
 def submit_label(session_id: str, frame_name: str, payload: LabelRequest):
     result = label_service.save_label(
@@ -65,3 +78,33 @@ def reset_labels(session_id: str):
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"success": True}
+
+
+@router.post("/labels/{session_id}/frame/{frame_name}/detections")
+def save_detections(session_id: str, frame_name: str, payload: DetectionRequest):
+    result = label_service.save_detections(
+        session_id=session_id, frame_name=frame_name, detections=payload.detections, saved=payload.saved or False
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return result
+
+
+@router.post("/export/detections/{session_id}")
+def export_detections(session_id: str):
+    export_path = label_service.export_detections(session_id=session_id)
+    if export_path is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"success": True, "download_url": f"/api/export/detections/{session_id}/download"}
+
+
+@router.get("/export/detections/{session_id}/download")
+def download_detection_export(session_id: str):
+    export_path = label_service.export_detections(session_id=session_id)
+    if export_path is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not export_path.exists():
+        export_path = label_service.export_detections(session_id=session_id)
+    if export_path is None or not export_path.exists():
+        raise HTTPException(status_code=404, detail="Export not found")
+    return FileResponse(export_path, media_type="application/zip")

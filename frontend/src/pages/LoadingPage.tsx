@@ -16,6 +16,7 @@ function LoadingPage() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string>("");
   const [isError, setIsError] = useState<boolean>(false);
+  const isDone = status?.status === "done";
 
   const progress = useMemo(() => {
     if (!status || status.total_frames === 0) return 0;
@@ -32,10 +33,6 @@ function LoadingPage() {
       try {
         const { data } = await apiClient.get<StatusResponse>(`/api/videos/${sessionId}/status`);
         setStatus(data);
-        if (data.status === "done") {
-          clearInterval(timer);
-          navigate(`/label/${sessionId}`, { replace: true });
-        }
         if (data.status === "error") {
           clearInterval(timer);
           setIsError(true);
@@ -90,7 +87,7 @@ function LoadingPage() {
           <div className="status">
             {status?.status === "queued" && "等待抽帧资源..."}
             {status?.status === "processing" && "抽帧处理中..."}
-            {status?.status === "done" && "完成，正在跳转..."}
+            {status?.status === "done" && "完成，请选择下一步"}
             {status?.status === "error" && `抽帧失败：${status?.message || ""}`}
             {!status && "请求进度中..."}
             {error && ` | ${error}`}
@@ -121,6 +118,26 @@ function LoadingPage() {
               <button className="soft-button primary" type="button" onClick={() => window.location.reload()}>
                 重试
               </button>
+            )}
+            {sessionId && (
+              <>
+                <button
+                  className="soft-button primary"
+                  type="button"
+                  disabled={!isDone}
+                  onClick={() => navigate(`/label/${sessionId}`)}
+                >
+                  原姿态标注
+                </button>
+                <button
+                  className="soft-button primary"
+                  type="button"
+                  disabled={!isDone}
+                  onClick={() => navigate(`/detect/${sessionId}`)}
+                >
+                  全画面头部框选
+                </button>
+              </>
             )}
           </div>
         </div>

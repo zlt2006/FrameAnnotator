@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import zipfile
@@ -159,11 +160,123 @@ def reset_labels(session_id: str) -> bool:
         frame.pop("label", None)
         frame.pop("crop_name", None)
         frame.pop("bbox", None)
+        frame.pop("detection_boxes", None)
 
     # remove existing crops and export artifacts
     shutil.rmtree(config.CROPS_DIR / session_id, ignore_errors=True)
     export_path = get_export_path(session_id)
     export_path.unlink(missing_ok=True)
+    det_export_path = config.LABELS_DIR / f"{session_id}{config.DET_EXPORT_SUFFIX}"
+    det_export_path.unlink(missing_ok=True)
 
     utils.write_json(labels_path(session_id), data)
     return True
+
+
+def save_detections(
+    session_id: str, frame_name: str, detections: List[Dict[str, Any]], saved: bool = False
+) -> Optional[Dict[str, Any]]:
+    data = load_labels(session_id)
+    if data is None:
+        return None
+
+    frames = data.setdefault("frames", [])
+    existing = next((frame for frame in frames if frame.get("frame_name") == frame_name), None)
+    if existing is None:
+        existing = {"frame_name": frame_name}
+        frames.append(existing)
+
+    valid_dets = []
+    skipped = 0
+    for det in detections:
+        try:
+            # support both dicts and Pydantic models
+            def _val(key: str) -> Any:
+                if isinstance(det, dict):
+                    return det.get(key)
+                return getattr(det, key, None)
+
+            x = float(_val("x"))
+            y = float(_val("y"))
+            size = float(_val("box_size"))
+            w = float(_val("image_width"))
+            h = float(_val("image_height"))
+        except Exception:  # noqa: BLE001
+            skipped += 1
+            continue
+
+        if not all(math.isfinite(v) for v in (x, y, size, w, h)):
+            skipped += 1
+            continue
+
+        if size <= 0 or w <= 0 or h <= 0:
+            skipped += 1
+            continue
+
+        x_center = x / w
+        y_center = y / h
+        width_rel = size / w
+        height_rel = size / h
+
+        valid_dets.append(
+            {
+                "x": x,
+                "y": y,
+                "box_size": size,
+                "image_width": w,
+                "image_height": h,
+                "x_center": x_center,
+                "y_center": y_center,
+                "width": width_rel,
+                "height": height_rel,
+            }
+        )
+
+    existing["detection_boxes"] = valid_dets
+    existing["detection_saved"] = saved and bool(valid_dets)
+    utils.write_json(labels_path(session_id), data)
+
+    message = None
+    if saved and not valid_dets:
+        message = "无有效选框，未计入导出"
+    elif skipped:
+        message = f"忽略 {skipped} 个无效框"
+
+    return {"success": True, "count": len(valid_dets), "saved": existing["detection_saved"], "message": message}
+
+
+def export_detections(session_id: str) -> Optional[Path]:
+    data = load_labels(session_id)
+    if data is None:
+        return None
+
+    frames = data.get("frames", [])
+    export_path = config.LABELS_DIR / f"{session_id}{config.DET_EXPORT_SUFFIX}"
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(export_path, "w") as archive:
+        for frame in frames:
+            frame_name = frame.get("frame_name")
+            if not frame_name:
+                continue
+            frame_path = config.FRAMES_DIR / session_id / frame_name
+            if not frame.get("detection_saved"):
+                continue
+
+            if frame_path.exists():
+                archive.write(frame_path, arcname=f"images/{frame_name}")
+
+            dets: List[Dict[str, Any]] = frame.get("detection_boxes") or []
+            label_lines = []
+            for det in dets:
+                x_center = det.get("x_center")
+                y_center = det.get("y_center")
+                width = det.get("width")
+                height = det.get("height")
+                if None in (x_center, y_center, width, height):
+                    continue
+                label_lines.append(f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
+            label_name = frame_name.rsplit(".", 1)[0] + ".txt"
+            archive.writestr(f"labels/{label_name}", "\n".join(label_lines))
+
+    return export_path
