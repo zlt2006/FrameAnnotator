@@ -133,10 +133,18 @@ def extract_frames(session_id: str, fps: int) -> List[str]:
                 break
 
             if frame_idx % frame_interval == 0:
-                resized = cv2.resize(frame, config.DEFAULT_FRAME_SIZE)
+                frame_to_save = frame
+                if config.FRAME_RESIZE_TO:
+                    frame_to_save = cv2.resize(frame, config.FRAME_RESIZE_TO)
+
                 file_name = f"{config.FRAME_PREFIX}{len(saved_files)+1:05d}.jpg"
                 output_path = frames_dir / file_name
-                cv2.imwrite(str(output_path), resized)
+
+                imwrite_params = []
+                if config.FRAME_JPEG_QUALITY:
+                    imwrite_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(config.FRAME_JPEG_QUALITY)]
+
+                cv2.imwrite(str(output_path), frame_to_save, imwrite_params)
                 saved_files.append(file_name)
 
             frame_idx += 1

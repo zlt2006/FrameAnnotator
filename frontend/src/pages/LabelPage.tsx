@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import apiClient from "../api/client";
@@ -167,6 +167,9 @@ function LabelPage() {
   const [cropSizeInvalid, setCropSizeInvalid] = useState<boolean>(false);
   const [status, setStatus] = useState<string>("");
   const [filterUnlabeled, setFilterUnlabeled] = useState<boolean>(false);
+  const [inheritEnabled, setInheritEnabled] = useState<boolean>(false);
+  const lastBboxRef = useRef<BBox | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const normalizeFrameName = (frame: any): string | null => {
     if (!frame) return null;
@@ -232,9 +235,11 @@ function LabelPage() {
   useEffect(() => {
     if (!currentFrame) return;
     const meta = frameMeta[currentFrame];
+    const inheritedBBox = inheritEnabled && lastBboxRef.current ? lastBboxRef.current : null;
+    const nextBBox = meta?.bbox ?? inheritedBBox;
     setSelectedLabel(meta?.label ?? null);
-    setBbox(meta?.bbox ?? null);
-  }, [currentFrame, frameMeta]);
+    setBbox(nextBBox);
+  }, [currentFrame, frameMeta, inheritEnabled]);
 
   const imageUrl = useMemo(() => {
     if (!sessionId || !currentFrame) {
@@ -273,7 +278,7 @@ function LabelPage() {
     img.src = imageUrl;
   }, [bbox, imageUrl]);
 
-  const submitLabel = async () => {
+  const submitLabel = useCallback(async () => {
     if (!sessionId || !currentFrame || bbox === null || selectedLabel === null) {
       setStatus("请先选择标签并设置裁剪框");
       return;
@@ -293,12 +298,13 @@ function LabelPage() {
         nextVisible.length === 0
           ? 0
           : Math.min(filterUnlabeled ? currentIndex : currentIndex + 1, nextVisible.length - 1);
+      lastBboxRef.current = bbox;
       setCurrentIndex(nextIndex);
     } catch (error) {
       console.error(error);
       setStatus("保存失败，请检查后端接口");
     }
-  };
+  }, [bbox, currentFrame, currentIndex, fetchData, filterUnlabeled, selectedLabel, sessionId]);
 
   const exportDataset = async () => {
     if (!sessionId) {
@@ -321,8 +327,62 @@ function LabelPage() {
     }
   };
 
+  // Keyboard shortcuts: 1-5 label, arrows frame nav, space save, R reset bbox, arrow keys move bbox
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName || "")) return;
+
+      // label shortcuts
+      if (e.key >= "1" && e.key <= "5") {
+        setSelectedLabel(Number(e.key));
+        return;
+      }
+
+      if (e.key === "ArrowLeft" && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setCurrentIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === "ArrowRight" && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setCurrentIndex((i) => Math.min(visibleFrames.length - 1, i + 1));
+        return;
+      }
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        submitLabel();
+        return;
+      }
+      if (e.key.toLowerCase() === "r") {
+        setBbox(null);
+        setPreviewUrl(null);
+        return;
+      }
+
+      // micro-move bbox
+      if (!bbox) return;
+      const step = e.shiftKey ? 5 : 1;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setBbox((prev) => (prev ? { ...prev, y: Math.max(0, prev.y - step) } : prev));
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setBbox((prev) => (prev ? { ...prev, y: prev.y + step } : prev));
+      } else if (e.key === "ArrowLeft" && e.shiftKey) {
+        e.preventDefault();
+        setBbox((prev) => (prev ? { ...prev, x: Math.max(0, prev.x - step) } : prev));
+      } else if (e.key === "ArrowRight" && e.shiftKey) {
+        e.preventDefault();
+        setBbox((prev) => (prev ? { ...prev, x: prev.x + step } : prev));
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [bbox, submitLabel, visibleFrames.length]);
+
   return (
-    <div style={styles.pageContainer}>
+    <div style={styles.pageContainer} ref={containerRef} tabIndex={-1}>
       
       {/* 1. Header: Slim, clean, global actions only */}
       <header style={styles.header}>
@@ -409,6 +469,17 @@ function LabelPage() {
           
           {/* Crop size */}
           <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={styles.sectionTitle}>帧继承</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#555' }}>
+              <input
+                type="checkbox"
+                checked={inheritEnabled}
+                onChange={(e) => setInheritEnabled(e.target.checked)}
+              />
+              下一帧沿用上一帧框
+            </label>
+          </div>
           <div style={styles.sectionTitle}>选定框边长</div>
             <input
               type="number"
