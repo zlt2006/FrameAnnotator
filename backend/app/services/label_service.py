@@ -28,12 +28,16 @@ def load_labels(session_id: str) -> Optional[Dict[str, Any]]:
     return utils.read_json(labels_path(session_id))
 
 
-def save_label(session_id: str, frame_name: str, bbox: Dict[str, Any], label: int) -> Optional[Dict[str, Any]]:
+def save_label(
+    session_id: str, frame_name: str, bbox: Dict[str, Any], label: int, hand_label: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
     data = load_labels(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="未找到 session 标签文件")
 
     _validate_label(label)
+    if hand_label is not None:
+        _validate_hand_label(hand_label)
     _validate_bbox(bbox)
 
     frames = data.setdefault("frames", [])
@@ -51,6 +55,7 @@ def save_label(session_id: str, frame_name: str, bbox: Dict[str, Any], label: in
         {
             "labeled": True,
             "label": label,
+            "hand_label": hand_label,
             "crop_name": crop_name,
             "bbox": bbox,
         }
@@ -75,6 +80,11 @@ def get_summary(session_id: str) -> Optional[Dict[str, Any]]:
 def _validate_label(label: int) -> None:
     if label not in {1, 2, 3, 4, 5}:
         raise HTTPException(status_code=400, detail="label 需为 1-5 的整数")
+
+
+def _validate_hand_label(label: int) -> None:
+    if label not in {1, 2, 3, 4, 5}:
+        raise HTTPException(status_code=400, detail="hand_label 需为 1-5 的整数")
 
 
 def _validate_bbox(bbox: Dict[str, Any]) -> None:
@@ -141,7 +151,9 @@ def export_dataset(session_id: str) -> Optional[Path]:
         for frame in frames:
             if frame.get("labeled") and "crop_name" in frame and "label" in frame:
                 crop_name = frame["crop_name"]
-                label_lines.append(f"{crop_name};{frame['label']}")
+                head_label = frame.get("label")
+                hand_label = frame.get("hand_label", 0) or 0
+                label_lines.append(f"{crop_name};{head_label};{hand_label}")
                 crop_path = config.CROPS_DIR / session_id / crop_name
                 if crop_path.exists():
                     archive.write(crop_path, arcname=crop_name)
@@ -158,6 +170,7 @@ def reset_labels(session_id: str) -> bool:
     for frame in frames:
         frame["labeled"] = False
         frame.pop("label", None)
+        frame.pop("hand_label", None)
         frame.pop("crop_name", None)
         frame.pop("bbox", None)
         frame.pop("detection_boxes", None)

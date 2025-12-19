@@ -7,6 +7,7 @@ import ImageCropper, { BBox } from "../components/ImageCropper";
 type FrameMeta = {
   labeled?: boolean;
   label?: number;
+  hand_label?: number;
   bbox?: BBox;
   crop_name?: string;
 };
@@ -160,6 +161,7 @@ function LabelPage() {
   const [frameMeta, setFrameMeta] = useState<Record<string, FrameMeta>>({});
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [selectedLabel, setSelectedLabel] = useState<number | null>(null);
+  const [selectedHandLabel, setSelectedHandLabel] = useState<number | null>(null);
   const [bbox, setBbox] = useState<BBox | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cropSizeInput, setCropSizeInput] = useState<string>("128");
@@ -197,6 +199,7 @@ function LabelPage() {
         meta[name] = {
           labeled: Boolean(item.labeled),
           label: item.label ?? null,
+          hand_label: item.hand_label ?? null,
           bbox: item.bbox ?? null,
           crop_name: item.crop_name ?? null,
         };
@@ -238,6 +241,7 @@ function LabelPage() {
     const inheritedBBox = inheritEnabled && lastBboxRef.current ? lastBboxRef.current : null;
     const nextBBox = meta?.bbox ?? inheritedBBox;
     setSelectedLabel(meta?.label ?? null);
+    setSelectedHandLabel(meta?.hand_label ?? null);
     setBbox(nextBBox);
   }, [currentFrame, frameMeta, inheritEnabled]);
 
@@ -253,6 +257,16 @@ function LabelPage() {
     Object.values(frameMeta).forEach((meta) => {
       if (meta?.labeled && meta.label && counts[meta.label] !== undefined) {
         counts[meta.label] += 1;
+      }
+    });
+    return counts;
+  }, [frameMeta]);
+
+  const handLabelCounts = useMemo(() => {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    Object.values(frameMeta).forEach((meta) => {
+      if (meta?.labeled && meta.hand_label && counts[meta.hand_label] !== undefined) {
+        counts[meta.hand_label] += 1;
       }
     });
     return counts;
@@ -279,8 +293,8 @@ function LabelPage() {
   }, [bbox, imageUrl]);
 
   const submitLabel = useCallback(async () => {
-    if (!sessionId || !currentFrame || bbox === null || selectedLabel === null) {
-      setStatus("请先选择标签并设置裁剪框");
+    if (!sessionId || !currentFrame || bbox === null || selectedLabel === null || selectedHandLabel === null) {
+      setStatus("请先选择头部/手部标签并设置裁剪框");
       return;
     }
 
@@ -288,6 +302,7 @@ function LabelPage() {
       await apiClient.post(`/api/labels/${sessionId}/frame/${currentFrame}`, {
         bbox,
         label: selectedLabel,
+        hand_label: selectedHandLabel,
       });
       setStatus(`已保存 ${currentFrame}`);
       const { frames: refreshedFrames, meta } = await fetchData();
@@ -304,7 +319,7 @@ function LabelPage() {
       console.error(error);
       setStatus("保存失败，请检查后端接口");
     }
-  }, [bbox, currentFrame, currentIndex, fetchData, filterUnlabeled, selectedLabel, sessionId]);
+  }, [bbox, currentFrame, currentIndex, fetchData, filterUnlabeled, selectedLabel, selectedHandLabel, sessionId]);
 
   const exportDataset = async () => {
     if (!sessionId) {
@@ -327,14 +342,18 @@ function LabelPage() {
     }
   };
 
-  // Keyboard shortcuts: 1-5 label, arrows frame nav, space save, R reset bbox, arrow keys move bbox
+  // Keyboard shortcuts: 1-5 头部标签，Shift+1-5 手部标签，左右切帧，空格保存，R 重置框，方向键微调框
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName || "")) return;
 
       // label shortcuts
       if (e.key >= "1" && e.key <= "5") {
-        setSelectedLabel(Number(e.key));
+        if (e.shiftKey) {
+          setSelectedHandLabel(Number(e.key));
+        } else {
+          setSelectedLabel(Number(e.key));
+        }
         return;
       }
 
@@ -414,6 +433,7 @@ function LabelPage() {
                  const { frames: refreshedFrames, meta } = await fetchData();
                  setCurrentIndex(0);
                  setSelectedLabel(null);
+                 setSelectedHandLabel(null);
                  setBbox(null);
                  setPreviewUrl(null);
                  setStatus("标注已清空，重新开始");
@@ -546,6 +566,36 @@ function LabelPage() {
                   type="button"
                   style={selectedLabel === value ? { ...styles.labelBtn, ...styles.activeLabelBtn } : styles.labelBtn}
                   onClick={() => setSelectedLabel(value)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Hand label group */}
+          <div>
+            <div style={styles.sectionTitle}>手部姿态</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '8px', marginBottom: '12px' }}>
+              <div className="tag">空手：{handLabelCounts[1] ?? 0}</div>
+              <div className="tag">手拿手机：{handLabelCounts[2] ?? 0}</div>
+              <div className="tag">手拿书：{handLabelCounts[3] ?? 0}</div>
+              <div className="tag">手拿笔：{handLabelCounts[4] ?? 0}</div>
+              <div className="tag">其他：{handLabelCounts[5] ?? 0}</div>
+            </div>
+            <div style={styles.labelGrid}>
+              {[
+                { value: 1, text: "空手" },
+                { value: 2, text: "手拿手机" },
+                { value: 3, text: "手拿书" },
+                { value: 4, text: "手拿笔" },
+                { value: 5, text: "其他" },
+              ].map(({ value, text }) => (
+                <button
+                  key={text}
+                  type="button"
+                  style={selectedHandLabel === value ? { ...styles.labelBtn, ...styles.activeLabelBtn } : styles.labelBtn}
+                  onClick={() => setSelectedHandLabel(value)}
                 >
                   {text}
                 </button>

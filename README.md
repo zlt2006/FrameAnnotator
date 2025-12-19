@@ -22,7 +22,7 @@
 
 **macOS（bash/zsh）**
 - 后端（默认 http://localhost:8000）：  
-  `cd backend && source .venv/bin/activate && python3 -m uvicorn app.main:app --reload --app-dir .`
+  `cd backend && c z`
 - 前端（默认 http://localhost:5173）：  
   `cd frontend && npm run dev`
 

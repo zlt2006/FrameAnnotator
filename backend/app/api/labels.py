@@ -20,6 +20,7 @@ class BBox(BaseModel):
 class LabelRequest(BaseModel):
     bbox: BBox
     label: int
+    hand_label: Optional[int] = None
 
 
 class Detection(BaseModel):
@@ -42,6 +43,7 @@ def submit_label(session_id: str, frame_name: str, payload: LabelRequest):
         frame_name=frame_name,
         bbox=payload.bbox.model_dump(),
         label=payload.label,
+        hand_label=payload.hand_label,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Frame not found in label set")
