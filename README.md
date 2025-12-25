@@ -80,3 +80,26 @@ project_root/
 - 帧列表：`GET /api/videos/{session_id}/frames`
 - 标注状态：`GET /api/labels/{session_id}`
 - 导出：`POST /api/export/{session_id}`，下载：`GET /api/export/{session_id}/download`
+
+## 6. 清理缓存数据（释放磁盘）
+视频上传与抽帧会在 `backend/data` 下产生大文件，可按需清理：
+
+**PowerShell 清空全部会话数据（慎用，全部删除）**
+```
+Remove-Item backend/data/videos/* -Recurse -Force
+Remove-Item backend/data/frames/* -Recurse -Force
+Remove-Item backend/data/crops/* -Recurse -Force
+Remove-Item backend/data/labels/* -Force
+```
+
+**仅删除指定 session（假设 ID 为 abc123）**
+```
+Remove-Item backend/data/videos/abc123 -Recurse -Force
+Remove-Item backend/data/frames/abc123 -Recurse -Force
+Remove-Item backend/data/crops/abc123 -Recurse -Force
+Remove-Item backend/data/labels/abc123.json -Force
+Remove-Item backend/data/labels/abc123_export.zip -Force
+Remove-Item backend/data/labels/abc123_det_export.zip -Force
+```
+
+清理后可用 `Get-PSDrive -PSProvider FileSystem` 查看磁盘剩余空间。

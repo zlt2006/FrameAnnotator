@@ -17,8 +17,14 @@ class BBox(BaseModel):
     height: int
 
 
+class PoseBoxes(BaseModel):
+    head: BBox
+    left_hand: BBox
+    right_hand: BBox
+
+
 class LabelRequest(BaseModel):
-    bbox: BBox
+    boxes: PoseBoxes
     label: int
     hand_label: Optional[int] = None
 
@@ -41,7 +47,7 @@ def submit_label(session_id: str, frame_name: str, payload: LabelRequest):
     result = label_service.save_label(
         session_id=session_id,
         frame_name=frame_name,
-        bbox=payload.bbox.model_dump(),
+        boxes=payload.boxes.model_dump(),
         label=payload.label,
         hand_label=payload.hand_label,
     )
