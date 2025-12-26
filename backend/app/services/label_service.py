@@ -160,6 +160,40 @@ def _compute_relative_pose(keypoints: Dict[str, Any], bbox: Dict[str, Any]) -> D
     return {name: _norm(pt) for name, pt in keypoints.items() if pt is not None}
 
 
+def _normalize_point(pt: Dict[str, Any], width: int, height: int) -> Dict[str, float]:
+    if width <= 0 or height <= 0:
+        raise HTTPException(status_code=400, detail="image width/height must be positive")
+    x = float(pt["x"]) / float(width)
+    y = float(pt["y"]) / float(height)
+    return {
+        "x": round(max(0.0, min(1.0, x)), 6),
+        "y": round(max(0.0, min(1.0, y)), 6),
+    }
+
+
+def _resolve_keypoints(
+    frame: Dict[str, Any],
+    head_box: Dict[str, Any],
+    left_box: Dict[str, Any],
+    right_box: Dict[str, Any],
+) -> Dict[str, Dict[str, float]]:
+    keypoints = frame.get("keypoints")
+    if isinstance(keypoints, dict):
+        try:
+            head = keypoints["head"]
+            left = keypoints["left_hand"]
+            right = keypoints["right_hand"]
+            if all(isinstance(item, dict) and "x" in item and "y" in item for item in (head, left, right)):
+                return {
+                    "head": {"x": float(head["x"]), "y": float(head["y"])},
+                    "left_hand": {"x": float(left["x"]), "y": float(left["y"])},
+                    "right_hand": {"x": float(right["x"]), "y": float(right["y"])},
+                }
+        except Exception:  # noqa: BLE001
+            pass
+    return _boxes_to_keypoints(head_box, left_box, right_box)
+
+
 def _crop_and_save(session_id: str, frame_name: str, bbox: Dict[str, Any], crop_name: str) -> Path:
     frame_path = config.FRAMES_DIR / session_id / frame_name
     if not frame_path.exists():
@@ -278,13 +312,19 @@ def export_dataset(session_id: str) -> Optional[Path]:
             if image is None:
                 continue
 
+            keypoints = _resolve_keypoints(frame, head_box, left_box, right_box)
+            img_height, img_width = image.shape[:2]
+            head_norm = _normalize_point(keypoints["head"], img_width, img_height)
+            left_norm = _normalize_point(keypoints["left_hand"], img_width, img_height)
+            right_norm = _normalize_point(keypoints["right_hand"], img_width, img_height)
+
             head_crop = _crop_from_image(image, head_box)
             head_name = f"head_{head_index:05d}.jpg"
             archive.writestr(
                 f"data/head_pose/images/{head_name}",
                 _encode_jpg(head_crop),
             )
-            head_records.append({"image": head_name, "label": label_value})
+            head_records.append({"image": head_name, "label": label_value, "keypoints": {"head": head_norm}})
             head_index += 1
 
             left_crop = _crop_from_image(image, left_box)
@@ -295,7 +335,13 @@ def export_dataset(session_id: str) -> Optional[Path]:
                 f"data/hand_pose/images/{hand_name}",
                 _encode_jpg(hand_crop),
             )
-            hand_records.append({"image": hand_name, "label": hand_label_value})
+            hand_records.append(
+                {
+                    "image": hand_name,
+                    "label": hand_label_value,
+                    "keypoints": {"left_hand": left_norm, "right_hand": right_norm},
+                }
+            )
             hand_index += 1
 
         archive.writestr("data/head_pose/labels.json", json.dumps(head_records, ensure_ascii=False, indent=2))
